@@ -111,12 +111,16 @@ async function launch({ headed = false } = {}) {
   const dir = profileDir();
   fs.mkdirSync(dir, { recursive: true });
   try { fs.rmSync(path.join(dir, 'DevToolsActivePort')); } catch {}
-  const bin = findChrome(headed);
+  // A signed-in profile stays with the browser that made it: its cookies are encrypted with that browser's own
+  // OS-keychain key, which another browser can't read. So the first --profile run (normally `login`) records the
+  // binary, and later runs reuse it. (No mock keychain: that would leave the cookies readable by anything on disk.)
+  const rec = path.join(dir, '.steal-browser');
+  let bin = null;
+  if (flags.profile && !flags.chrome) { try { const b = fs.readFileSync(rec, 'utf8').trim(); if (fs.statSync(b).isFile() && !(headed && /headless/.test(b))) bin = b; } catch {} }
+  bin = bin || findChrome(headed);
+  if (flags.profile) fs.writeFileSync(rec, bin);
   const args = [`--user-data-dir=${dir}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
-    '--disable-extensions', '--mute-audio', '--hide-scrollbars', '--lang=en-US,zh-CN',
-    // one fixed cookie key instead of the macOS keychain, so a session saved by `login` (a windowed browser) can be
-    // read by the headless browser the other commands use
-    '--use-mock-keychain', '--password-store=basic'];
+    '--disable-extensions', '--mute-audio', '--hide-scrollbars', '--lang=en-US,zh-CN'];
   if (!headed) args.push('--headless=new');
   if (flags.gpu === 'swiftshader') args.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader');
   if (!launch.said) { console.error(`capture: browser ${bin}${flags.gpu === 'swiftshader' ? ' (software WebGL)' : ''}`); launch.said = true; }
